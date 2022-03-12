@@ -55,6 +55,9 @@ func main() {
 	config.KafsarConfig.MaxConsumersPerGroup = 1
 	config.KafsarConfig.GroupMaxSessionTimeoutMs = 60000
 	config.KafsarConfig.GroupMinSessionTimeoutMs = 0
+	config.KafsarConfig.MaxFetchRecord = 10
+	config.KafsarConfig.MaxFetchWaitMs = 100
+	config.KafsarConfig.NamespacePrefix = "public/default"
 	e := &ExampleKafsarImpl{}
 	_, err := kafsar.Run(config, e)
 	if err != nil {

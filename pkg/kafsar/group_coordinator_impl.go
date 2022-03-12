@@ -18,6 +18,7 @@
 package kafsar
 
 import (
+	"container/list"
 	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/google/uuid"
 	"github.com/paashzj/kafka_go/pkg/service"
@@ -44,16 +45,26 @@ const (
 )
 
 type Group struct {
+	topic          string
 	groupId        string
 	groupStatus    GroupStatus
 	groupProtocols []*service.GroupProtocol
 	protocolType   string
 	members        map[string]memberMetadata
+	consumerMetadata *ConsumerMetadata
 }
 
 type memberMetadata struct {
+	clientId string
 	memberId string
 	metadata []byte
+}
+
+type ConsumerMetadata struct {
+	groupId      string
+	channel      chan pulsar.ConsumerMessage
+	consumer     pulsar.Consumer
+	messageIds   *list.List
 }
 
 func (gci *GroupCoordinatorImpl) HandleJoinGroup(groupId, memberId, clientId, protocolType string, sessionTimeoutMs int,
@@ -104,7 +115,7 @@ func (gci *GroupCoordinatorImpl) HandleJoinGroup(groupId, memberId, clientId, pr
 			groupId, memberId, numMember, gci.KafsarConfig.MaxConsumersPerGroup)
 		return &service.JoinGroupResp{
 			MemberId:  memberId,
-			ErrorCode: service.UNKNOWN_MEMBER_ID,
+			ErrorCode: service.UNKNOWN_SERVER_ERROR,
 		}, nil
 	}
 
@@ -125,7 +136,11 @@ func (gci *GroupCoordinatorImpl) HandleJoinGroup(groupId, memberId, clientId, pr
 		protocol := group.groupProtocols[0]
 		protocolName := protocol.ProtocolName
 		protocolMetadata := protocol.ProtocolMetadata
-		members[memberId] = memberMetadata{memberId: memberId, metadata: []byte(protocolMetadata)}
+		members[memberId] = memberMetadata{
+			clientId: clientId,
+			memberId: memberId,
+			metadata: []byte(protocolMetadata),
+		}
 		member := service.Member{
 			MemberId:        memberId,
 			GroupInstanceId: nil,
@@ -207,7 +222,7 @@ func (gci *GroupCoordinatorImpl) HandleLeaveGroup(groupId string,
 		}, nil
 	}
 	gci.mutex.RLock()
-	groupMeta, exist := gci.GroupManager[groupId]
+	group, exist := gci.GroupManager[groupId]
 	gci.mutex.RUnlock()
 	if !exist {
 		logrus.Errorf("leave group failed, cause group not exist")
@@ -215,10 +230,11 @@ func (gci *GroupCoordinatorImpl) HandleLeaveGroup(groupId string,
 			ErrorCode: service.INVALID_GROUP_ID,
 		}, nil
 	}
-	membersMeta := groupMeta.members
+	membersMetadata := group.members
 	for i := range members {
-		delete(membersMeta, members[i].MemberId)
+		delete(membersMetadata, members[i].MemberId)
 		logrus.Infof("consumer member: %s success leave group: %s", members[i].MemberId, groupId)
 	}
+	group.consumerMetadata.consumer.Close()
 	return &service.LeaveGroupResp{ErrorCode: service.NONE, Members: members}, nil
 }

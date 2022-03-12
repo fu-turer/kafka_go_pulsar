@@ -71,7 +71,7 @@ func TestHandleJoinGroupMultiMember(t *testing.T) {
 	newMemberId := "test-member-id-2"
 	resp, err = groupCoordinator.HandleJoinGroup(groupId, newMemberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
-	assert.Equal(t, service.UNKNOWN_MEMBER_ID, resp.ErrorCode)
+	assert.Equal(t, service.UNKNOWN_SERVER_ERROR, resp.ErrorCode)
 }
 
 func TestHandleJoinGroupInvalidParams(t *testing.T) {

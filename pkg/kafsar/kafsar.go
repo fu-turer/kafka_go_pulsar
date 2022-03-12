@@ -38,6 +38,10 @@ type KafsarConfig struct {
 	MaxConsumersPerGroup     int
 	GroupMinSessionTimeoutMs int
 	GroupMaxSessionTimeoutMs int
+	NamespacePrefix          string
+	ConsumerReceiveQueueSize int
+	MaxFetchRecord           int
+	MaxFetchWaitMs           int
 }
 
 type Broker struct {
@@ -45,7 +49,7 @@ type Broker struct {
 
 func Run(config *Config, impl Server) (*Broker, error) {
 	logrus.Info("kafsar started")
-	k := &KafkaImpl{server: impl, pulsarConfig: config.PulsarConfig, kafsarConfig: config.KafsarConfig}
+	k := NewKafsar(impl, config)
 	err := k.ConnPulsar()
 	if err != nil {
 		return nil, err
