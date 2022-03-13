@@ -28,10 +28,10 @@ import (
 
 type GroupCoordinatorImpl struct {
 	pulsarConfig PulsarConfig
-	KafsarConfig KafsarConfig
+	kafsarConfig KafsarConfig
 	pulsarClient pulsar.Client
 	mutex        sync.RWMutex
-	GroupManager map[string]Group
+	groupManager map[string]*Group
 }
 
 type GroupStatus int
@@ -67,6 +67,12 @@ type ConsumerMetadata struct {
 	messageIds   *list.List
 }
 
+func NewGroupCoordinator(pulsarConfig PulsarConfig, kafsarConfig KafsarConfig, pulsarClient pulsar.Client) *GroupCoordinatorImpl {
+	coordinatorImpl := GroupCoordinatorImpl{pulsarConfig: pulsarConfig, kafsarConfig: kafsarConfig, pulsarClient: pulsarClient}
+	coordinatorImpl.groupManager = make(map[string]*Group)
+	return &coordinatorImpl
+}
+
 func (gci *GroupCoordinatorImpl) HandleJoinGroup(groupId, memberId, clientId, protocolType string, sessionTimeoutMs int,
 	protocols []*service.GroupProtocol) (*service.JoinGroupResp, error) {
 	// reject if groupId is empty
@@ -77,16 +83,16 @@ func (gci *GroupCoordinatorImpl) HandleJoinGroup(groupId, memberId, clientId, pr
 			ErrorCode: service.INVALID_GROUP_ID,
 		}, nil
 	}
-	if sessionTimeoutMs < gci.KafsarConfig.GroupMinSessionTimeoutMs || sessionTimeoutMs > gci.KafsarConfig.GroupMaxSessionTimeoutMs {
+	if sessionTimeoutMs < gci.kafsarConfig.GroupMinSessionTimeoutMs || sessionTimeoutMs > gci.kafsarConfig.GroupMaxSessionTimeoutMs {
 		logrus.Errorf("join group failed, cause invalid sessionTimeoutMs: %d. minSessionTimeoutMs: %d, maxSessionTimeoutMs: %d",
-			sessionTimeoutMs, gci.KafsarConfig.GroupMinSessionTimeoutMs, gci.KafsarConfig.GroupMaxSessionTimeoutMs)
+			sessionTimeoutMs, gci.kafsarConfig.GroupMinSessionTimeoutMs, gci.kafsarConfig.GroupMaxSessionTimeoutMs)
 		return &service.JoinGroupResp{
 			MemberId:  memberId,
 			ErrorCode: service.INVALID_SESSION_TIMEOUT,
 		}, nil
 	}
 	gci.mutex.RLock()
-	group, exist := gci.GroupManager[groupId]
+	group, exist := gci.groupManager[groupId]
 	gci.mutex.RUnlock()
 	gci.mutex.Lock()
 	defer gci.mutex.Unlock()
@@ -99,20 +105,20 @@ func (gci *GroupCoordinatorImpl) HandleJoinGroup(groupId, memberId, clientId, pr
 				ErrorCode: service.INCONSISTENT_GROUP_PROTOCOL,
 			}, nil
 		}
-		group = Group{
+		group = &Group{
 			groupId:        groupId,
 			groupStatus:    Empty,
 			protocolType:   protocolType,
 			groupProtocols: protocols,
 			members:        make(map[string]memberMetadata),
 		}
-		gci.GroupManager[groupId] = group
+		gci.groupManager[groupId] = group
 	}
 	members := group.members
 	numMember := len(members)
-	if numMember >= gci.KafsarConfig.MaxConsumersPerGroup {
+	if numMember >= gci.kafsarConfig.MaxConsumersPerGroup {
 		logrus.Errorf("join group failed, exceed maximum number of group. groupId: %s, memberId: %s, current: %d, maxConsumersPerGroup: %d",
-			groupId, memberId, numMember, gci.KafsarConfig.MaxConsumersPerGroup)
+			groupId, memberId, numMember, gci.kafsarConfig.MaxConsumersPerGroup)
 		return &service.JoinGroupResp{
 			MemberId:  memberId,
 			ErrorCode: service.UNKNOWN_SERVER_ERROR,
@@ -183,7 +189,7 @@ func (gci *GroupCoordinatorImpl) HandleSyncGroup(groupId, memberId string, gener
 		}, nil
 	}
 	gci.mutex.RLock()
-	groupMeta, exist := gci.GroupManager[groupId]
+	groupMeta, exist := gci.groupManager[groupId]
 	gci.mutex.RUnlock()
 	if !exist {
 		logrus.Errorf("sync group failed, cause invalid groupId")
@@ -222,7 +228,7 @@ func (gci *GroupCoordinatorImpl) HandleLeaveGroup(groupId string,
 		}, nil
 	}
 	gci.mutex.RLock()
-	group, exist := gci.GroupManager[groupId]
+	group, exist := gci.groupManager[groupId]
 	gci.mutex.RUnlock()
 	if !exist {
 		logrus.Errorf("leave group failed, cause group not exist")
@@ -235,6 +241,9 @@ func (gci *GroupCoordinatorImpl) HandleLeaveGroup(groupId string,
 		delete(membersMetadata, members[i].MemberId)
 		logrus.Infof("consumer member: %s success leave group: %s", members[i].MemberId, groupId)
 	}
-	group.consumerMetadata.consumer.Close()
+	consumerMetadata := group.consumerMetadata
+	if consumerMetadata != nil {
+		consumerMetadata.consumer.Close()
+	}
 	return &service.LeaveGroupResp{ErrorCode: service.NONE, Members: members}, nil
 }

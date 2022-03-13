@@ -45,6 +45,12 @@ func setupKafsarInternal(port int) (*kafsar.Broker, error) {
 	config.PulsarConfig.Host = "localhost"
 	config.PulsarConfig.HttpPort = 8080
 	config.PulsarConfig.TcpPort = 6650
+	config.KafsarConfig.MaxConsumersPerGroup = 100
+	config.KafsarConfig.GroupMaxSessionTimeoutMs = 60000
+	config.KafsarConfig.GroupMinSessionTimeoutMs = 0
+	config.KafsarConfig.MaxFetchRecord = 10
+	config.KafsarConfig.MaxFetchWaitMs = 100
+	config.KafsarConfig.NamespacePrefix = "public/default"
 	kafsarImpl := &KafsarImpl{}
 	return kafsar.Run(config, kafsarImpl)
 }

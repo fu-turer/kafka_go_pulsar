@@ -23,8 +23,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/paashzj/kafka_go/pkg/service"
 	"github.com/paashzj/kafka_go_pulsar/pkg/kafsar"
+	"github.com/segmentio/kafka-go"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"strconv"
 	"testing"
+	"time"
 )
 
 var (
@@ -32,16 +36,20 @@ var (
 	testClientId    = "consumer-test-client-id"
 	testContent     = "test-content"
 	addr            = Addr{ip: "localhost", port: "10012", protocol: "tcp"}
-	maxFetchWaitMs  = 1000
+	maxFetchWaitMs  = 500
 	maxFetchRecord  = 1
 	pulsarClient, _ = pulsar.NewClient(pulsar.ClientOptions{URL: "pulsar://localhost:6650"})
 	config          = &kafsar.Config{
 		KafsarConfig: kafsar.KafsarConfig{
+			MaxConsumersPerGroup: 1,
+			GroupMinSessionTimeoutMs: 0,
+			GroupMaxSessionTimeoutMs: 30000,
 			MaxFetchWaitMs:  maxFetchWaitMs,
 			MaxFetchRecord:  maxFetchRecord,
 			NamespacePrefix: "public/default",
 		},
 	}
+	kafsarServer = KafsarImpl{}
 )
 
 type Addr struct {
@@ -61,11 +69,25 @@ func TestFetchPartitionNoMessage(t *testing.T) {
 	topic := uuid.New().String()
 	groupId := uuid.New().String()
 	setupPulsar()
-	k := kafsar.NewKafsar(nil, config)
+	k := kafsar.NewKafsar(kafsarServer, config)
 	err := k.InitGroupCoordinator()
 	assert.Nil(t, err)
 	err = k.ConnPulsar()
 	assert.Nil(t, err)
+
+	// join group
+	joinGroupReq := service.JoinGroupReq{
+		ClientId:       clientId,
+		GroupId:        groupId,
+		SessionTimeout: sessionTimeoutMs,
+		ProtocolType:   protocolType,
+		GroupProtocols: protocols,
+	}
+	joinGroupResp, err := k.GroupJoin(&addr, &joinGroupReq)
+	assert.Nil(t, err)
+	assert.Equal(t, service.NONE, joinGroupResp.ErrorCode)
+
+	// offset fetch
 	offsetFetchReq := service.OffsetFetchPartitionReq{
 		GroupId:     groupId,
 		ClientId:    testClientId,
@@ -86,7 +108,7 @@ func TestFetchAndCommitOffset(t *testing.T) {
 	topic := uuid.New().String()
 	groupId := uuid.New().String()
 	setupPulsar()
-	k := kafsar.NewKafsar(nil, config)
+	k := kafsar.NewKafsar(kafsarServer, config)
 	err := k.InitGroupCoordinator()
 	assert.Nil(t, err)
 	err = k.ConnPulsar()
@@ -94,7 +116,20 @@ func TestFetchAndCommitOffset(t *testing.T) {
 	producer, err := pulsarClient.CreateProducer(pulsar.ProducerOptions{Topic: topic})
 	assert.Nil(t, err)
 	messageId, err := producer.Send(context.TODO(), &pulsar.ProducerMessage{Value: testContent})
+	logrus.Infof("send msg to pulsar %s", messageId)
 	assert.Nil(t, err)
+
+	// join group
+	joinGroupReq := service.JoinGroupReq{
+		ClientId:       clientId,
+		GroupId:        groupId,
+		SessionTimeout: sessionTimeoutMs,
+		ProtocolType:   protocolType,
+		GroupProtocols: protocols,
+	}
+	joinGroupResp, err := k.GroupJoin(&addr, &joinGroupReq)
+	assert.Nil(t, err)
+	assert.Equal(t, service.NONE, joinGroupResp.ErrorCode)
 
 	// offset fetch
 	offsetFetchReq := service.OffsetFetchPartitionReq{
@@ -128,4 +163,30 @@ func TestFetchAndCommitOffset(t *testing.T) {
 	commitPartitionResp, err := k.OffsetCommitPartition(&addr, topic, &offsetCommitPartitionReq)
 	assert.Nil(t, err)
 	assert.Equal(t, service.NONE, commitPartitionResp.ErrorCode)
+}
+
+func TestConsumeByKafkaClient(t *testing.T) {
+	setupPulsar()
+	_, port := setupKafsar()
+	topic := uuid.New().String()
+	producer, err := pulsarClient.CreateProducer(pulsar.ProducerOptions{Topic: topic})
+	assert.Nil(t, err)
+	_, err = producer.Send(context.TODO(), &pulsar.ProducerMessage{Value: testContent})
+	assert.Nil(t, err)
+
+	kafkaServerAddr := "localhost:" + strconv.Itoa(port)
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:        []string{kafkaServerAddr},
+		GroupID:        groupId,
+		Topic:          topic,
+		SessionTimeout: 1 * time.Second,
+		MinBytes:       1,
+		MaxBytes:       10e6,
+		MaxWait:        100 * time.Millisecond,
+	})
+	defer reader.Close()
+
+	message, err := reader.ReadMessage(context.Background())
+	assert.Nil(t, err)
+	assert.Equal(t, testContent, string(message.Value))
 }

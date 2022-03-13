@@ -31,3 +31,7 @@ func (e ExampleKafsarImpl) AuthTopic(username string, password, clientId, topic 
 func (e ExampleKafsarImpl) AuthTopicGroup(username string, password, clientId, consumerGroup string) (bool, error) {
 	return true, nil
 }
+
+func (e ExampleKafsarImpl) SyncGroup(groupId string) (string, error) {
+	return groupId, nil
+}

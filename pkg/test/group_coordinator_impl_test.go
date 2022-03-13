@@ -52,7 +52,7 @@ var (
 )
 
 func TestHandleJoinGroup(t *testing.T) {
-	groupCoordinator := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinator := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	resp, err := groupCoordinator.HandleJoinGroup(groupId, memberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
 	assert.Equal(t, service.NONE, resp.ErrorCode)
@@ -63,7 +63,7 @@ func TestHandleJoinGroup(t *testing.T) {
 }
 
 func TestHandleJoinGroupMultiMember(t *testing.T) {
-	groupCoordinator := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinator := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	resp, err := groupCoordinator.HandleJoinGroup(groupId, memberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
 	assert.Equal(t, service.NONE, resp.ErrorCode)
@@ -76,19 +76,19 @@ func TestHandleJoinGroupMultiMember(t *testing.T) {
 
 func TestHandleJoinGroupInvalidParams(t *testing.T) {
 	// invalid groupId
-	groupCoordinatorEmptyGroupId := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinatorEmptyGroupId := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	groupIdEmpty := ""
 	resp, err := groupCoordinatorEmptyGroupId.HandleJoinGroup(groupIdEmpty, memberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
 	assert.Equal(t, service.INVALID_GROUP_ID, resp.ErrorCode)
 
 	// invalid protocol
-	groupCoordinatorEmptyProtocol := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinatorEmptyProtocol := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	var protocolsEmpty []*service.GroupProtocol
 	resp, err = groupCoordinatorEmptyProtocol.HandleJoinGroup(groupId, memberId, clientId, protocolType, sessionTimeoutMs, protocolsEmpty)
 	assert.Nil(t, err)
 	assert.Equal(t, service.INCONSISTENT_GROUP_PROTOCOL, resp.ErrorCode)
-	groupCoordinatorEmptyProtocolType := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinatorEmptyProtocolType := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	protocolTypeEmpty := ""
 	resp, err = groupCoordinatorEmptyProtocolType.HandleJoinGroup(groupId, memberId, clientId, protocolTypeEmpty, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
@@ -96,7 +96,7 @@ func TestHandleJoinGroupInvalidParams(t *testing.T) {
 }
 
 func TestHandleSyncGroup(t *testing.T) {
-	groupCoordinator := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinator := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	joinGroupResp, err := groupCoordinator.HandleJoinGroup(groupId, memberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
 	assert.Equal(t, service.NONE, joinGroupResp.ErrorCode)
@@ -107,7 +107,7 @@ func TestHandleSyncGroup(t *testing.T) {
 }
 
 func TestHandleSyncGroupInvalidParams(t *testing.T) {
-	groupCoordinator := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinator := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	joinGroupResp, err := groupCoordinator.HandleJoinGroup(groupId, memberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
 	assert.Equal(t, service.NONE, joinGroupResp.ErrorCode)
@@ -126,7 +126,7 @@ func TestHandleSyncGroupInvalidParams(t *testing.T) {
 }
 
 func TestLeaveGroup(t *testing.T) {
-	groupCoordinator := kafsar.GroupCoordinatorImpl{GroupManager: make(map[string]kafsar.Group), KafsarConfig: kafsarConfig}
+	groupCoordinator := kafsar.NewGroupCoordinator(kafsar.PulsarConfig{}, kafsarConfig, nil)
 	resp, err := groupCoordinator.HandleJoinGroup(groupId, memberId, clientId, protocolType, sessionTimeoutMs, protocols)
 	assert.Nil(t, err)
 	assert.Equal(t, service.NONE, resp.ErrorCode)

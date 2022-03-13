@@ -41,13 +41,13 @@ type KafkaImpl struct {
 }
 
 func NewKafsar(impl Server, config *Config) *KafkaImpl {
-	return &KafkaImpl{server: impl, pulsarConfig: config.PulsarConfig, kafsarConfig: config.KafsarConfig}
+	kafka := KafkaImpl{server: impl, pulsarConfig: config.PulsarConfig, kafsarConfig: config.KafsarConfig}
+	kafka.consumerManager = make(map[string]*ConsumerMetadata)
+	return &kafka
 }
 
 func (k *KafkaImpl) InitGroupCoordinator() (err error) {
-	k.groupCoordinator = &GroupCoordinatorImpl{pulsarConfig: k.pulsarConfig, KafsarConfig: k.kafsarConfig, pulsarClient: k.pulsarClient}
-	k.groupCoordinator.GroupManager = make(map[string]Group)
-	k.consumerManager = make(map[string]*ConsumerMetadata)
+	k.groupCoordinator = NewGroupCoordinator(k.pulsarConfig, k.kafsarConfig, k.pulsarClient)
 	return
 }
 
@@ -79,6 +79,11 @@ func (k *KafkaImpl) FetchPartition(addr net.Addr, topic string, req *service.Fet
 	recordBatch := service.RecordBatch{Records: records}
 	fetchStart := time.Now()
 	for ;; {
+		timepicker := make(chan bool, 1)
+		go func() {
+			time.Sleep(1 * time.Millisecond)
+			timepicker <- true
+		}()
 		select {
 		case channel := <-consumerMetadata.channel:
 			message := channel.Message
@@ -92,7 +97,7 @@ func (k *KafkaImpl) FetchPartition(addr net.Addr, topic string, req *service.Fet
 			recordBatch.Records = append(recordBatch.Records, &record)
 			recordBatch.Offset = int64(offset)
 			consumerMetadata.messageIds.PushBack(message.ID())
-		default:
+		case <-timepicker:
 			logrus.Debugf("fetch empty message for topic %s", fullNameTopic)
 		}
 		if time.Since(fetchStart).Milliseconds() >= int64(k.kafsarConfig.MaxFetchWaitMs) || len(recordBatch.Records) >= k.kafsarConfig.MaxFetchRecord {
@@ -186,12 +191,16 @@ func (k *KafkaImpl) OffsetCommitPartition(addr net.Addr, topic string, req *serv
 func (k *KafkaImpl) OffsetFetch(addr net.Addr, topic string, req *service.OffsetFetchPartitionReq) (*service.OffsetFetchPartitionResp, error) {
 	logrus.Infof("%s fetch topic: %s offset, partition: %d", addr.String(), topic, req.PartitionId)
 	fullNameTopic := k.kafsarConfig.NamespacePrefix + "/" + topic
+	groupId, err := k.server.SyncGroup(req.GroupId)
+	if err != nil {
+		logrus.Errorf("sync group %s failed when offset fetch, error: %s", req.GroupId, err)
+	}
 	k.mutex.RLock()
 	consumerMetadata, exist := k.consumerManager[fullNameTopic]
 	k.mutex.RUnlock()
 	if !exist {
 		k.mutex.Lock()
-		metadata := ConsumerMetadata{groupId: req.GroupId, messageIds: list.New(),}
+		metadata := ConsumerMetadata{groupId: groupId, messageIds: list.New()}
 		channel, consumer, err := k.createConsumer(topic, req.GroupId)
 		if err != nil {
 			logrus.Errorf("%s, create channel failed, error: %s", topic, err)
@@ -206,7 +215,7 @@ func (k *KafkaImpl) OffsetFetch(addr net.Addr, topic string, req *service.Offset
 		k.mutex.Unlock()
 	}
 	k.mutex.RLock()
-	group := k.groupCoordinator.GroupManager[req.GroupId]
+	group := k.groupCoordinator.groupManager[req.GroupId]
 	k.mutex.RUnlock()
 	group.topic = fullNameTopic
 	group.consumerMetadata = consumerMetadata
@@ -252,7 +261,7 @@ func (k *KafkaImpl) createConsumer(topic, groupId string) (chan pulsar.ConsumerM
 	options := pulsar.ConsumerOptions{
 		Topic:                       topic,
 		SubscriptionName:            groupId,
-		Type:                        pulsar.Shared,
+		Type:                        pulsar.Failover,
 		SubscriptionInitialPosition: pulsar.SubscriptionPositionEarliest,
 		MessageChannel:              channel,
 		ReceiverQueueSize:           k.kafsarConfig.ConsumerReceiveQueueSize,

@@ -23,4 +23,6 @@ type Server interface {
 	AuthTopic(username string, password, clientId, topic string) (bool, error)
 
 	AuthTopicGroup(username string, password, clientId, consumerGroup string) (bool, error)
+
+	SyncGroup(groupId string) (string, error)
 }
